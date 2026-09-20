@@ -61,7 +61,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // 🚀 ROBUST EXTRACTOR: Reach inside the Airtable API's link structure to pull the string reference
+            // Reach inside the Airtable API's link structure to pull the string reference cleanly
             let parentOrderId = null;
             if (Array.isArray(linkedOrders) && linkedOrders.length > 0) {
                 const firstLink = linkedOrders[0];
@@ -80,7 +80,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
                 const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
                 if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
 
-                // 🚀 ROBUST EXTRACTOR: Reach inside the Airtable API's product link array to pull the string identifier
+                // Reach inside the Airtable API's product link array to pull the string identifier cleanly
                 let productId = null;
                 if (Array.isArray(linkedProductIds) && linkedProductIds.length > 0) {
                     const firstProdLink = linkedProductIds[0];
