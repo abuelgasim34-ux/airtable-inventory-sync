@@ -29,41 +29,59 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
-        // 2. Index active orders and products for lightning-fast cross-table text lookup matching
+        // 2. Index active orders by their record ID and string name identifiers to map statuses instantly
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
             ordersStatusMap[order.id] = order.get('Order Status');
+            
+            // Map custom Order ID string numbers if they are used as primary links instead of record IDs
+            const customOrderId = order.get('Order ID') || order.get('Order Number') || order.get('Name');
+            if (customOrderId) {
+                ordersStatusMap[String(customOrderId).trim()] = order.get('Order Status');
+            }
         });
 
+        // Index product record IDs to map them instantly to their respective text SKU strings
         const productSkuLookupMap = {};
         productRecords.forEach(prod => {
-            productSkuLookupMap[prod.id] = prod.get('SKU'); // Maps Airtable Record ID -> "PROD-KYB-MECH"
+            productSkuLookupMap[prod.id] = prod.get('SKU'); 
+            const customSku = prod.get('SKU');
+            if (customSku) {
+                productSkuLookupMap[String(customSku).trim()] = customSku;
+            }
         });
 
         // 3. Compute total historic deductions based strictly on the status of the parent Order
         const calculatedDeductions = {};
 
         lineItemRecords.forEach(item => {
-            const linkedOrders = item.get('Orders') || item.get('Order') || [];
-            if (linkedOrders.length === 0) return; 
+            // Adaptive Fallback Array: Tries every common naming variation for your link column header
+            const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
+            if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // Extract the literal text ID string out of the Airtable link array container
-            const parentOrderId = linkedOrders.length > 0 ? linkedOrders[0] : null;
+            // Extract the first link element safely, handling both lookup arrays and plain text strings
+            const rawOrderRef = Array.isArray(linkedOrders) ? linkedOrders[0] : linkedOrders;
+            const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
+            
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
-            if (activeDeductionStatuses.includes(orderStatus)) {
-                const linkedProductIds = item.get('Product Linked') || [];
-                const productId = linkedProductIds.length > 0 ? linkedProductIds[0] : null;
+            // Only process calculations if the parent order matches an active deduction status
+            if (orderStatus && activeDeductionStatuses.includes(orderStatus)) {
+                const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
+                const rawProductRef = Array.isArray(linkedProductIds) ? linkedProductIds[0] : linkedProductIds;
+                const productId = rawProductRef ? String(rawProductRef).trim() : null;
                 
                 // Convert the internal Airtable Record ID string into your text SKU matching identifier
                 const sku = productId ? productSkuLookupMap[productId] : null; 
-                const quantity = Number(item.get('Quantity Ordered')) || 0;
+                const quantity = Number(item.get('Quantity Ordered')) || Number(item.get('Quantity')) || 0;
 
                 if (sku && quantity > 0) {
                     calculatedDeductions[sku] = (calculatedDeductions[sku] || 0) + quantity;
                 }
             }
         });
+
+        console.log('📊 Calculated Ledger Deductions Matrix:', JSON.stringify(calculatedDeductions));
 
         // 4. Compute the true dynamic final balance for every catalog row layout
         const updatePayload = productRecords.map(record => {
@@ -98,6 +116,5 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
     }
 });
 
-// Render dynamically injects a PORT environment variable, defaulting to 8080 if not set
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Automated Ledger Service is listening on port ${PORT}`));
