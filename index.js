@@ -32,10 +32,8 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // 2. Index active orders by BOTH their record ID and primary visible text name (1, 2, 3)
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
-            // Index by internal Airtable Record ID
             ordersStatusMap[order.id] = order.get('Order Status');
             
-            // Index by visible Order ID Name (e.g., "1", "3", "4")
             const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name');
             if (orderIdName) {
                 ordersStatusMap[String(orderIdName).trim()] = order.get('Order Status');
@@ -61,7 +59,6 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // Reach inside the Airtable API's link structure to pull the string reference cleanly
             let parentOrderId = null;
             if (Array.isArray(linkedOrders) && linkedOrders.length > 0) {
                 const firstLink = linkedOrders[0];
@@ -71,16 +68,14 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             }
             
             if (parentOrderId) parentOrderId = String(parentOrderId).trim();
-            
-            // Cross-reference using our dual-indexed status map
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
             // Only process calculations if the parent order matches an active deduction status
             if (orderStatus && activeDeductionStatuses.includes(orderStatus)) {
-                const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
+                // 🚀 ADAPTIVE EXTRACTOR: Try every common column name variation for your product link
+                const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || item.get('Products') || [];
                 if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
 
-                // Reach inside the Airtable API's product link array to pull the string identifier cleanly
                 let productId = null;
                 if (Array.isArray(linkedProductIds) && linkedProductIds.length > 0) {
                     const firstProdLink = linkedProductIds[0];
@@ -90,10 +85,13 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
                 }
 
                 if (productId) productId = String(productId).trim();
-                
-                // Convert the product reference into your text SKU matching identifier
                 const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
-                const quantity = Number(item.get('Quantity Ordered')) || Number(item.get('Quantity')) || 0;
+                
+                // 🚀 ADAPTIVE QUANTITY ACCUMULATOR: Try every common naming fallback for your count column
+                const quantity = Number(item.get('Quantity Ordered')) || 
+                                 Number(item.get('Quantity')) || 
+                                 Number(item.get('Qty')) || 
+                                 Number(item.get('Count')) || 0;
 
                 if (sku && quantity > 0) {
                     calculatedDeductions[sku] = (calculatedDeductions[sku] || 0) + quantity;
