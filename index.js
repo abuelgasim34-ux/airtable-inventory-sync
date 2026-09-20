@@ -1,0 +1,81 @@
+const express = require('express');
+const Airtable = require('airtable');
+
+const app = express();
+app.use(express.json());
+
+// Initialize secure cross-cloud authorization tokens using environment variables
+const base = new Airtable({ apiKey: process.env.AIRTABLE_TOKEN }).base(process.env.AIRTABLE_BASE_ID);
+
+// 🔗 PRODUCTION ENDPOINT ROUTE
+// This is the clean URL path that Make.com will ping
+app.post('/api/webhook/inventory-sync', async (req, res) => {
+    console.log('📥 Inbound webhook event captured. Running enterprise multi-status ledger computation...');
+    
+    try {
+        // 1. Fetch ALL line items and products in the database to calculate total history states
+        const allLineItems = await base('Line Items').select().all();
+        const productRecords = await base('Products').select().all();
+
+        // Hardcoded mathematical baselines from your initial warehouse setup catalog
+        const initialStockMap = {
+            'PROD-KYB-MECH': 76,
+            'PROD-CBL-USB': 200,
+            'PROD-MOUSE-01': 100,
+            'PROD-HD-1TB': 50,
+            'PROD-MON-27': 30
+        };
+
+        // 2. Map of status states that actively hold a committed stock deduction
+        const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
+
+        // 3. Sum up total historic deductions ONLY for records in a committed status state
+        const calculatedDeductions = allLineItems.reduce((acc, record) => {
+            const status = record.get('Order Status');
+            const skuArray = record.get('Product Linked');
+            const sku = skuArray && skuArray.length > 0 ? skuArray[0] : null; // Safe extraction of linked record string
+            const quantity = Number(record.get('Quantity Ordered')) || 0;
+
+            // If the status is Approved, Processing, or Fulfilled, freeze and hold the deduction active
+            if (activeDeductionStatuses.includes(status) && sku && quantity > 0) {
+                acc[sku] = (acc[sku] || 0) + quantity;
+            }
+            return acc;
+        }, {});
+
+        // 4. Compute the true dynamic mathematical final balance for every catalog row layout
+        const updatePayload = productRecords.map(record => {
+            const sku = record.get('SKU');
+            const baseStock = initialStockMap[sku] || Number(record.get('Starting Stock')) || 0;
+            const totalDeduction = calculatedDeductions[sku] || 0;
+            
+            return {
+                id: record.id,
+                fields: {
+                    'Starting Stock': Math.max(0, baseStock - totalDeduction) // Adds stock back safely if flipped to Draft or Pending Review!
+                }
+            };
+        });
+
+        // 5. Bulk push the clean balance updates back to Airtable in blocks of 50 records max
+        if (updatePayload.length > 0) {
+            for (let i = 0; i < updatePayload.length; i += 50) {
+                const chunk = updatePayload.slice(i, i + 50);
+                await base('Products').update(chunk);
+                console.log(`📦 Pushed chunk matrix: Processed items ${i + 1} to ${Math.min(i + 50, updatePayload.length)} successfully.`);
+            }
+            console.log('✅ Success! Two-way multi-status inventory stock sync completed.');
+            return res.status(200).json({ success: true, message: 'Stock levels synced successfully across all operational states.' });
+        } else {
+            return res.status(200).json({ success: true, message: 'Calculated ledger properties require zero variation.' });
+        }
+
+    } catch (error) {
+        console.error('❌ Error executing multi-status ledger pipeline:', error.message);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Render dynamically injects a PORT environment variable, defaulting to 8080 if not set
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`Automated Ledger Service is listening on port ${PORT}`));
