@@ -43,9 +43,9 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || [];
             if (linkedOrders.length === 0) return; // Skip if line item is not linked to any order
 
-            // 🚀 HOTFIX: Safely extract the literal Record ID string out of the Airtable link array container
-            const parentOrderId = linkedOrders[0];
-            const orderStatus = ordersStatusMap[parentOrderId];
+            //🚀 HOTFIX: Extract the literal text ID string out of the Airtable link array container 
+            const parentOrderId = linkedOrders && linkedOrders.length > 0 ? linkedOrders[0] : null;
+            const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
             // Only process calculations if the parent order is Approved, Processing, or Fulfilled
             if (activeDeductionStatuses.includes(orderStatus)) {
