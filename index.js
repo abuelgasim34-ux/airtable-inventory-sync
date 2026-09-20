@@ -29,16 +29,16 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
-        // 2. Index active orders by BOTH their record ID and string name identifiers to map statuses instantly
+        // 2. Index active orders by BOTH their record ID and primary visible text name (1, 2, 3)
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
-            // Index by internal Airtable Record ID (recXXXXXXXXXXXXXX)
+            // Index by internal Airtable Record ID
             ordersStatusMap[order.id] = order.get('Order Status');
             
-            // Index by visible Primary Name Field string (1, 2, 3, etc.)
-            const primaryOrderName = order.get('Order ID') || order.get('Order Number') || order.get('Name') || order.fields[Object.keys(order.fields)[0]];
-            if (primaryOrderName) {
-                ordersStatusMap[String(primaryOrderName).trim()] = order.get('Order Status');
+            // Index by visible Order ID Name (e.g., "1", "3", "4")
+            const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name') || order.fields[Object.keys(order.fields)[0]];
+            if (orderIdName) {
+                ordersStatusMap[String(orderIdName).trim()] = order.get('Order Status');
             }
         });
 
@@ -61,9 +61,13 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // Extract the first link element safely, handling both lookup arrays and plain strings
+            // Extract the first link element, handling both internal record strings or raw text strings safely
             const rawOrderRef = Array.isArray(linkedOrders) ? linkedOrders[0] : linkedOrders;
-            const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
+            
+            // Resolve record ID names if returned as object arrays by the API wrapper
+            const parentOrderId = rawOrderRef && typeof rawOrderRef === 'object' && rawOrderRef.name 
+                ? String(rawOrderRef.name).trim() 
+                : rawOrderRef ? String(rawOrderRef).trim() : null;
             
             // Cross-reference using our dual-indexed status map
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
@@ -71,8 +75,12 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             // Only process calculations if the parent order matches an active deduction status
             if (orderStatus && activeDeductionStatuses.includes(orderStatus)) {
                 const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
+                if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
+
                 const rawProductRef = Array.isArray(linkedProductIds) ? linkedProductIds[0] : linkedProductIds;
-                const productId = rawProductRef ? String(rawProductRef).trim() : null;
+                const productId = rawProductRef && typeof rawProductRef === 'object' && rawProductRef.name
+                    ? String(rawProductRef.name).trim()
+                    : rawProductRef ? String(rawProductRef).trim() : null;
                 
                 // Convert the product reference into your text SKU matching identifier
                 const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
