@@ -29,15 +29,10 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
-        // 2. Index active orders by their record ID or Order ID field to map statuses instantly
+        // 2. Index active orders by their record ID to map statuses instantly
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
-            // Check both Airtable internal record ID and your custom Order Number field string
-            const orderNum = String(order.get('Order ID') || order.get('Order Number') || '');
             ordersStatusMap[order.id] = order.get('Order Status');
-            if (orderNum) {
-                ordersStatusMap[orderNum] = order.get('Order Status');
-            }
         });
 
         // 3. Compute total historic deductions based strictly on the status of the parent Order
@@ -45,16 +40,17 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
 
         lineItemRecords.forEach(item => {
             // Extract the linked order pointer array
-            const linkedOrders = item.get('Orders') || [];
+            const linkedOrders = item.get('Orders') || item.get('Order') || [];
             if (linkedOrders.length === 0) return; // Skip if line item is not linked to any order
 
+            // 🚀 HOTFIX: Safely extract the literal Record ID string out of the Airtable link array container
             const parentOrderId = linkedOrders[0];
             const orderStatus = ordersStatusMap[parentOrderId];
 
             // Only process calculations if the parent order is Approved, Processing, or Fulfilled
             if (activeDeductionStatuses.includes(orderStatus)) {
                 const skuArray = item.get('Product Linked');
-                const sku = skuArray && skuArray.length > 0 ? skuArray[0] : null;
+                const sku = skuArray && skuArray.length > 0 ? skuArray[0] : null; // Safe extraction of linked record string
                 const quantity = Number(item.get('Quantity Ordered')) || 0;
 
                 if (sku && quantity > 0) {
