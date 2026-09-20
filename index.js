@@ -29,22 +29,24 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
-        // 2. Index active orders by their record ID and string name identifiers to map statuses instantly
+        // 2. Index active orders by BOTH their record ID and string name identifiers to map statuses instantly
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
+            // Index by internal Airtable Record ID (recXXXXXXXXXXXXXX)
             ordersStatusMap[order.id] = order.get('Order Status');
             
-            // Map custom Order ID string numbers if they are used as primary links instead of record IDs
-            const customOrderId = order.get('Order ID') || order.get('Order Number') || order.get('Name');
-            if (customOrderId) {
-                ordersStatusMap[String(customOrderId).trim()] = order.get('Order Status');
+            // Index by visible Primary Name Field string (1, 2, 3, etc.)
+            const primaryOrderName = order.get('Order ID') || order.get('Order Number') || order.get('Name') || order.fields[Object.keys(order.fields)[0]];
+            if (primaryOrderName) {
+                ordersStatusMap[String(primaryOrderName).trim()] = order.get('Order Status');
             }
         });
 
-        // Index product record IDs to map them instantly to their respective text SKU strings
+        // Index product record IDs and SKUs to map them instantly to their respective text SKU strings
         const productSkuLookupMap = {};
         productRecords.forEach(prod => {
             productSkuLookupMap[prod.id] = prod.get('SKU'); 
+            
             const customSku = prod.get('SKU');
             if (customSku) {
                 productSkuLookupMap[String(customSku).trim()] = customSku;
@@ -55,14 +57,15 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         const calculatedDeductions = {};
 
         lineItemRecords.forEach(item => {
-            // Adaptive Fallback Array: Tries every common naming variation for your link column header
+            // Adaptive Fallback Array: Tries common naming variations for your link column header
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // Extract the first link element safely, handling both lookup arrays and plain text strings
+            // Extract the first link element safely, handling both lookup arrays and plain strings
             const rawOrderRef = Array.isArray(linkedOrders) ? linkedOrders[0] : linkedOrders;
             const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
             
+            // Cross-reference using our dual-indexed status map
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
             // Only process calculations if the parent order matches an active deduction status
@@ -71,8 +74,8 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
                 const rawProductRef = Array.isArray(linkedProductIds) ? linkedProductIds[0] : linkedProductIds;
                 const productId = rawProductRef ? String(rawProductRef).trim() : null;
                 
-                // Convert the internal Airtable Record ID string into your text SKU matching identifier
-                const sku = productId ? productSkuLookupMap[productId] : null; 
+                // Convert the product reference into your text SKU matching identifier
+                const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
                 const quantity = Number(item.get('Quantity Ordered')) || Number(item.get('Quantity')) || 0;
 
                 if (sku && quantity > 0) {
