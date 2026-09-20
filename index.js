@@ -61,9 +61,16 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // 🚀 FIXED: Safely extract the literal text string out of position index 0 of the array container
-            const rawOrderRef = Array.isArray(linkedOrders) ? linkedOrders[0] : linkedOrders;
-            const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
+            // 🚀 ROBUST EXTRACTOR: Reach inside the Airtable API's link structure to pull the string reference
+            let parentOrderId = null;
+            if (Array.isArray(linkedOrders) && linkedOrders.length > 0) {
+                const firstLink = linkedOrders[0];
+                parentOrderId = typeof firstLink === 'object' ? (firstLink.id || firstLink.name) : firstLink;
+            } else {
+                parentOrderId = typeof linkedOrders === 'object' ? (linkedOrders.id || linkedOrders.name) : linkedOrders;
+            }
+            
+            if (parentOrderId) parentOrderId = String(parentOrderId).trim();
             
             // Cross-reference using our dual-indexed status map
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
@@ -73,9 +80,16 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
                 const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
                 if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
 
-                // 🚀 FIXED: Extract the literal product reference string out of position index 0 of the array container
-                const rawProductRef = Array.isArray(linkedProductIds) ? linkedProductIds[0] : linkedProductIds;
-                const productId = rawProductRef ? String(rawProductRef).trim() : null;
+                // 🚀 ROBUST EXTRACTOR: Reach inside the Airtable API's product link array to pull the string identifier
+                let productId = null;
+                if (Array.isArray(linkedProductIds) && linkedProductIds.length > 0) {
+                    const firstProdLink = linkedProductIds[0];
+                    productId = typeof firstProdLink === 'object' ? (firstProdLink.id || firstProdLink.name) : firstProdLink;
+                } else {
+                    productId = typeof linkedProductIds === 'object' ? (linkedProductIds.id || linkedProductIds.name) : linkedProductIds;
+                }
+
+                if (productId) productId = String(productId).trim();
                 
                 // Convert the product reference into your text SKU matching identifier
                 const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
