@@ -36,7 +36,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             ordersStatusMap[order.id] = order.get('Order Status');
             
             // Index by visible Order ID Name (e.g., "1", "3", "4")
-            const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name') || order.fields[Object.keys(order.fields)[0]];
+            const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name');
             if (orderIdName) {
                 ordersStatusMap[String(orderIdName).trim()] = order.get('Order Status');
             }
@@ -61,13 +61,9 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             const linkedOrders = item.get('Orders') || item.get('Order') || item.get('Order Number') || item.get('Order Link') || [];
             if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
 
-            // Extract the first link element, handling both internal record strings or raw text strings safely
+            // 🚀 FIXED: Safely extract the literal text string out of position index 0 of the array container
             const rawOrderRef = Array.isArray(linkedOrders) ? linkedOrders[0] : linkedOrders;
-            
-            // Resolve record ID names if returned as object arrays by the API wrapper
-            const parentOrderId = rawOrderRef && typeof rawOrderRef === 'object' && rawOrderRef.name 
-                ? String(rawOrderRef.name).trim() 
-                : rawOrderRef ? String(rawOrderRef).trim() : null;
+            const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
             
             // Cross-reference using our dual-indexed status map
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
@@ -77,10 +73,9 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
                 const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
                 if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
 
+                // 🚀 FIXED: Extract the literal product reference string out of position index 0 of the array container
                 const rawProductRef = Array.isArray(linkedProductIds) ? linkedProductIds[0] : linkedProductIds;
-                const productId = rawProductRef && typeof rawProductRef === 'object' && rawProductRef.name
-                    ? String(rawProductRef.name).trim()
-                    : rawProductRef ? String(rawProductRef).trim() : null;
+                const productId = rawProductRef ? String(rawProductRef).trim() : null;
                 
                 // Convert the product reference into your text SKU matching identifier
                 const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
