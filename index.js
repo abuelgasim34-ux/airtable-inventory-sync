@@ -29,28 +29,34 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
-        // 2. Index active orders by their record ID to map statuses instantly
+        // 2. Index active orders and products for lightning-fast cross-table text lookup matching
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
             ordersStatusMap[order.id] = order.get('Order Status');
+        });
+
+        const productSkuLookupMap = {};
+        productRecords.forEach(prod => {
+            productSkuLookupMap[prod.id] = prod.get('SKU'); // Maps Airtable Record ID -> "PROD-KYB-MECH"
         });
 
         // 3. Compute total historic deductions based strictly on the status of the parent Order
         const calculatedDeductions = {};
 
         lineItemRecords.forEach(item => {
-            // Extract the linked order pointer array
             const linkedOrders = item.get('Orders') || item.get('Order') || [];
-            if (linkedOrders.length === 0) return; // Skip if line item is not linked to any order
+            if (linkedOrders.length === 0) return; 
 
-            //🚀 HOTFIX: Extract the literal text ID string out of the Airtable link array container 
-            const parentOrderId = linkedOrders && linkedOrders.length > 0 ? linkedOrders[0] : null;
+            // Extract the literal text ID string out of the Airtable link array container
+            const parentOrderId = linkedOrders.length > 0 ? linkedOrders[0] : null;
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
-            // Only process calculations if the parent order is Approved, Processing, or Fulfilled
             if (activeDeductionStatuses.includes(orderStatus)) {
-                const skuArray = item.get('Product Linked');
-                const sku = skuArray && skuArray.length > 0 ? skuArray[0] : null; // Safe extraction of linked record string
+                const linkedProductIds = item.get('Product Linked') || [];
+                const productId = linkedProductIds.length > 0 ? linkedProductIds[0] : null;
+                
+                // Convert the internal Airtable Record ID string into your text SKU matching identifier
+                const sku = productId ? productSkuLookupMap[productId] : null; 
                 const quantity = Number(item.get('Quantity Ordered')) || 0;
 
                 if (sku && quantity > 0) {
@@ -92,5 +98,6 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
     }
 });
 
+// Render dynamically injects a PORT environment variable, defaulting to 8080 if not set
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Automated Ledger Service is listening on port ${PORT}`));
