@@ -17,26 +17,19 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         const lineItemRecords = await base('Line Items').select().all();
         const productRecords = await base('Products').select().all();
 
-        // Hardcoded mathematical baselines from your initial warehouse setup catalog configuration
-        const initialStockMap = {
-            'PROD-KYB-MECH': 76,
-            'PROD-CBL-USB': 200,
-            'PROD-MOUSE-01': 100,
-            'PROD-HD-1TB': 50,
-            'PROD-MON-27': 30
-        };
-
         // Status states that actively hold a committed stock deduction
         const activeDeductionStatuses = ['Approved', 'Processing', 'Fulfilled'];
 
         // 2. Index active orders by BOTH their record ID and primary visible text name (1, 2, 3)
         const ordersStatusMap = {};
         orderRecords.forEach(order => {
-            ordersStatusMap[order.id] = order.get('Order Status');
+            const status = order.get('Order Status');
+            ordersStatusMap[order.id] = status;
             
-            const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name');
+            // Index by visible Order ID Name (e.g., "1", "2", "3")
+            const orderIdName = order.get('Order ID') || order.get('Order Number') || order.get('Name') || order.get('order id linked');
             if (orderIdName) {
-                ordersStatusMap[String(orderIdName).trim()] = order.get('Order Status');
+                ordersStatusMap[String(orderIdName).trim()] = status;
             }
         });
 
@@ -55,38 +48,27 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
         const calculatedDeductions = {};
 
         lineItemRecords.forEach(item => {
-            // Adaptive Fallback Array: Tries common naming variations for your link column header
-            const linkedOrders = item.get('Order ID Linked') || item.get('Orders') || item.get('Order') || item.get('Order Number') || [];
-            if (!linkedOrders || (Array.isArray(linkedOrders) && linkedOrders.length === 0)) return;
+            // Fetch your explicit 3NF link pathways precisely
+            const orderLinks = item.get('Order ID Linked') || item.get('Orders') || item.get('Order') || [];
+            if (!orderLinks || (Array.isArray(orderLinks) && orderLinks.length === 0)) return;
 
-            // Extract the first link item safely out of the array
-            let parentOrderId = null;
-            if (Array.isArray(linkedOrders) && linkedOrders.length > 0) {
-                const firstLink = linkedOrders;
-                parentOrderId = typeof firstLink === 'object' ? (firstLink.id || firstLink.name) : firstLink;
-            } else {
-                parentOrderId = typeof linkedOrders === 'object' ? (linkedOrders.id || linkedOrders.name) : linkedOrders;
-            }
+            // 🚀 FIXED STRING EXTRACTOR: Convert the array target element cleanly into a text string lookup key
+            const rawOrderRef = Array.isArray(orderLinks) ? orderLinks[0] : orderLinks;
+            const parentOrderId = rawOrderRef ? String(rawOrderRef).trim() : null;
             
-            if (parentOrderId) parentOrderId = String(parentOrderId).trim();
             const orderStatus = parentOrderId ? ordersStatusMap[parentOrderId] : null;
 
             // Only process calculations if the parent order matches an active deduction status
             if (orderStatus && activeDeductionStatuses.includes(orderStatus)) {
-                const linkedProductIds = item.get('Product Linked') || item.get('SKU Link') || item.get('Product') || [];
-                if (!linkedProductIds || (Array.isArray(linkedProductIds) && linkedProductIds.length === 0)) return;
+                const productLinks = item.get('Product Linked') || item.get('Product') || [];
+                if (!productLinks || (Array.isArray(productLinks) && productLinks.length === 0)) return;
 
-                let productId = null;
-                if (Array.isArray(linkedProductIds) && linkedProductIds.length > 0) {
-                    const firstProdLink = linkedProductIds;
-                    productId = typeof firstProdLink === 'object' ? (firstProdLink.id || firstProdLink.name) : firstProdLink;
-                } else {
-                    productId = typeof linkedProductIds === 'object' ? (linkedProductIds.id || linkedProductIds.name) : linkedProductIds;
-                }
-
-                if (productId) productId = String(productId).trim();
-                const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
+                // Convert the product link element cleanly into a text string matching key
+                const rawProductRef = Array.isArray(productLinks) ? productLinks[0] : productLinks;
+                const productId = rawProductRef ? String(rawProductRef).trim() : null;
                 
+                // Convert the product reference into your text SKU matching identifier
+                const sku = productId ? (productSkuLookupMap[productId] || productId) : null; 
                 const quantity = Number(item.get('Quantity Ordered')) || Number(item.get('Quantity')) || 0;
 
                 if (sku && quantity > 0) {
@@ -105,7 +87,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             return {
                 id: record.id,
                 fields: {
-                    // 🚀 SENIOR SHIFT: Updates your deductions column, keeping your Starting Stock cell locked!
+                    // 🚀 SENIOR SHIFT CONSTRAINTS: Updates your deductions cell, leaving Starting Stock locked!
                     'Committed Stock': totalDeduction
                 }
             };
