@@ -62,7 +62,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
             // Extract the first link item safely out of the array
             let parentOrderId = null;
             if (Array.isArray(linkedOrders) && linkedOrders.length > 0) {
-                const firstLink = linkedOrders[0];
+                const firstLink = linkedOrders;
                 parentOrderId = typeof firstLink === 'object' ? (firstLink.id || firstLink.name) : firstLink;
             } else {
                 parentOrderId = typeof linkedOrders === 'object' ? (linkedOrders.id || linkedOrders.name) : linkedOrders;
@@ -78,7 +78,7 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
 
                 let productId = null;
                 if (Array.isArray(linkedProductIds) && linkedProductIds.length > 0) {
-                    const firstProdLink = linkedProductIds[0];
+                    const firstProdLink = linkedProductIds;
                     productId = typeof firstProdLink === 'object' ? (firstProdLink.id || firstProdLink.name) : firstProdLink;
                 } else {
                     productId = typeof linkedProductIds === 'object' ? (linkedProductIds.id || linkedProductIds.name) : linkedProductIds;
@@ -97,17 +97,16 @@ app.post('/api/webhook/inventory-sync', async (req, res) => {
 
         console.log('📊 Calculated Ledger Deductions Matrix:', JSON.stringify(calculatedDeductions));
 
-        // 4. Compute the true dynamic final balance and write it back directly to Starting Stock
+        // 4. Compute the true dynamic final balance and write it safely to Committed Stock
         const updatePayload = productRecords.map(record => {
             const sku = record.get('SKU');
-            const baseStock = initialStockMap[sku] || Number(record.get('Starting Stock')) || 0;
             const totalDeduction = calculatedDeductions[sku] || 0;
             
             return {
                 id: record.id,
                 fields: {
-                    // 🚀 DIRECT DROPS FIXED: Forcefully updates the cell value on your screen!
-                    'Starting Stock': Math.max(0, baseStock - totalDeduction)
+                    // 🚀 SENIOR SHIFT: Updates your deductions column, keeping your Starting Stock cell locked!
+                    'Committed Stock': totalDeduction
                 }
             };
         });
